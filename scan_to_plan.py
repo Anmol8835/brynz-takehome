@@ -237,7 +237,19 @@ def main():
     ap.add_argument("capture_dir")
     ap.add_argument("--out", default=None)
     ap.add_argument("--no-calibrate", action="store_true")
+    ap.add_argument("--fusion-stride", type=int, default=2,
+                    help="decimate depth frames by N during fusion (default 2)")
+    ap.add_argument("--mosaic-cell", type=float, default=0.005,
+                    help="mosaic cell size in metres (default 5 mm)")
+    ap.add_argument("--max-surfaces", type=int, default=3,
+                    help="damage mosaics for floor + N largest raised surfaces (default 3)")
+    ap.add_argument("--fast", action="store_true",
+                    help="sparser frames + 1cm cells + 1 raised surface (~3-4 min/capture)")
     args = ap.parse_args()
+    if args.fast:
+        args.fusion_stride = 3
+        args.max_surfaces = 1
+        args.mosaic_cell = 0.01
 
     t0 = time.time()
     capture = os.path.abspath(args.capture_dir)
@@ -253,7 +265,7 @@ def main():
     print(f"[calibrate] odometry translation scale k = {k:.4f}")
 
     # --- fusion ---
-    cloud = build_cloud(capture, odometry_scale=k)
+    cloud = build_cloud(capture, odometry_scale=k, stride=args.fusion_stride)
     pts = cloud["points"]
     print(f"[reconstruct] {len(pts)} points from {cloud['frames_used']} frames")
 
@@ -420,9 +432,9 @@ def main():
         try:
             from lib.damage import build_floor_mosaic, detect_damage, scope_items
             odo_m = {"frames": odo["frames"], "t": odo["t"] * k, "q": odo["q"], "K": odo["K"]}
-            stride = max(1, len(odo["frames"]) // 400)
+            stride = max(1, len(odo["frames"]) // (200 if args.fast else 400))
             surface_planes = [("floor", floor_n, floor["d"])]
-            for s in surfaces[:3]:
+            for s in surfaces[:args.max_surfaces]:
                 # a surface h above the floor satisfies n·p + d_s = 0 with
                 # d_s = d_floor - h (n points up)
                 hn = floor_n
@@ -435,7 +447,7 @@ def main():
             thumbs = []
             for sname, sn, sd in surface_planes:
                 mosaic = build_floor_mosaic(capture, odo_m, sn, sd, stride,
-                                            frames_dir=frames_dir)
+                                            cell=args.mosaic_cell, frames_dir=frames_dir)
                 res = detect_damage(mosaic)
                 res["surface"] = sname
                 damage["surfaces"].append(res)
