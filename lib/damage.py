@@ -27,6 +27,29 @@ RGB_W, RGB_H = 960, 720
 U_SCALE, V_SCALE = RGB_W / DEPTH_W, RGB_H / DEPTH_H
 
 
+def local_plane_offset(s, band=0.15, min_pts=400, max_off=0.12, dominance=2.5,
+                       bins=30):
+    """Per-frame modal offset of a surface relative to a reference plane.
+
+    `s` is signed distance of the frame's points to the plane. The floor fit
+    can sit at the bottom of the surface's noise band and the reconstruction
+    warps slightly per frame, so mosaics anchor on the modal surface mass.
+    Returns 0.0 when no dominant planar spike exists (surface not in view).
+    """
+    sel = s[np.abs(s) < band]
+    if sel.size < min_pts:
+        return 0.0
+    hist, edges = np.histogram(sel, bins=bins, range=(-band, band))
+    peak = int(hist.max())
+    med = float(np.median(hist))
+    if peak < dominance * max(med, 1.0):
+        return 0.0  # no dominant spike (e.g. only walls/uniform noise in band)
+    o = float(edges[int(hist.argmax())] + (edges[1] - edges[0]) / 2)
+    if abs(o) > max_off:
+        return 0.0
+    return o
+
+
 def extract_rgb_frames(capture_dir, out_dir, stride):
     """Decode every stride-th frame of rgb.mp4 at 960x720 to out_dir.
 
@@ -36,8 +59,8 @@ def extract_rgb_frames(capture_dir, out_dir, stride):
     os.makedirs(out_dir, exist_ok=True)
     cmd = ["ffmpeg", "-loglevel", "error", "-i",
            os.path.join(capture_dir, "rgb.mp4"),
-           "-vf", f"select=not(mod(n\\,{stride}))", "-vsync", "vfr",
-           "-qscale:v", "4", os.path.join(out_dir, "%06d.jpg")]
+           "-vf", f"select=not(mod(n\\,{stride})),scale={RGB_W}:{RGB_H}:flags=area",
+           "-vsync", "vfr", "-qscale:v", "3", os.path.join(out_dir, "%06d.jpg")]
     subprocess.run(cmd, check=True)
 
 
@@ -74,6 +97,7 @@ def build_floor_mosaic(capture_dir, odo, floor_n, floor_d, stride,
         extract_rgb_frames(capture_dir, tmp, stride)
     frame_files = sorted(f for f in os.listdir(tmp) if f.endswith(".jpg"))
     frame_lookup = {int(f): i for i, f in enumerate(odo["frames"])}
+    offsets = []
 
     for fname in frame_files:
         out_idx = int(fname.split(".")[0])
@@ -84,6 +108,9 @@ def build_floor_mosaic(capture_dir, odo, floor_n, floor_d, stride,
         depth = load_depth(capture_dir, src_frame)
         conf = load_confidence(capture_dir, src_frame)
         rgb = np.asarray(Image.open(os.path.join(tmp, fname)), dtype=np.float64)
+        # scale from actual decoded size (robust to decoder settings)
+        rgb_h, rgb_w = rgb.shape[:2]
+        u_scale, v_scale = rgb_w / DEPTH_W, rgb_h / DEPTH_H
         K = odo["K"][row]
         fx, fy, cx, cy = K[0], K[1], K[2], K[3]
         v, u = np.mgrid[0:DEPTH_H, 0:DEPTH_W]
@@ -93,12 +120,16 @@ def build_floor_mosaic(capture_dir, odo, floor_n, floor_d, stride,
         vv = v[valid]
         pts = np.stack([(uu - cx) / fx * d, (vv - cy) / fy * d, d], axis=-1)
         world = pts @ R_all[row].T + t_all[row]
-        on_floor = np.abs(world @ floor_n + floor_d) < 0.03
+        s_all = world @ floor_n + floor_d
+        # plane-anchored correction: drift + fit bias vary per frame
+        o = local_plane_offset(s_all)
+        offsets.append(o)
+        on_floor = np.abs(s_all - o) < 0.035
         world = world[on_floor]
         uu = uu[on_floor]
         vv = vv[on_floor]
-        ur = np.clip(np.round(uu * U_SCALE).astype(int), 0, RGB_W - 1)
-        vr = np.clip(np.round(vv * V_SCALE).astype(int), 0, RGB_H - 1)
+        ur = np.clip(np.round(uu * u_scale).astype(int), 0, rgb_w - 1)
+        vr = np.clip(np.round(vv * v_scale).astype(int), 0, rgb_h - 1)
         cols = rgb[vr, ur]
         ix = np.floor((world[:, 0] - xmin) / cell).astype(int)
         iz = np.floor((world[:, 2] - zmin) / cell).astype(int)
@@ -113,7 +144,8 @@ def build_floor_mosaic(capture_dir, odo, floor_n, floor_d, stride,
     ok = counts > 0
     mean[ok] = color[ok] / counts[ok][:, None]
     return {"color": mean, "coverage": ok, "origin": np.array([xmin, zmin]),
-            "cell": cell, "counts": counts}
+            "cell": cell, "counts": counts,
+            "frame_offsets": offsets}
 
 
 def _elongated_components(mask, min_len_cells, min_ratio=3.0):

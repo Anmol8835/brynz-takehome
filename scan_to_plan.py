@@ -95,6 +95,35 @@ def pick_floor(planes, trajectory, gravity=(0.0, 1.0, 0.0)):
     return cands[0][1]
 
 
+def refit_plane(pts, n, d, band=0.30, sel=0.04):
+    """Re-centre a plane on the dominant surface mass near it.
+
+    The bottom-envelope fit lands at the bottom of the floor's noise band
+    (per-frame floor mass sits +2.5..+8.5 cm above it), so mosaics that
+    paint only |distance| < 3 cm catch thin slivers instead of the surface.
+    This finds the modal offset within `band` and least-squares refits on
+    points within `sel` of that mode.
+    """
+    s = pts @ n + d
+    near = pts[np.abs(s) < band]
+    if len(near) < 1000:
+        return n, d, None
+    s2 = near @ n + d
+    bin_w = 0.01
+    hist, edges = np.histogram(s2, bins=int(2 * band / bin_w), range=(-band, band))
+    m = float(edges[hist.argmax()] + bin_w / 2)
+    selpts = near[np.abs(s2 - m) < sel]
+    if len(selpts) < 500:
+        return n, d, None
+    c = selpts.mean(axis=0)
+    _, _, vt = np.linalg.svd(selpts - c, full_matrices=False)
+    n2 = vt[2]
+    if n2 @ n < 0:
+        n2 = -n2
+    d2 = -float(n2 @ c)
+    return n2, d2, m
+
+
 def ransac_floor_envelope(pts, frac=0.10, dist=0.02, iters=400):
     """Fit the floor as the plane through the BOTTOM envelope of the cloud.
 
@@ -276,9 +305,15 @@ def main():
         print("[floor] no floor plane found", file=sys.stderr)
         sys.exit(1)
     floor_n = floor["normal"]
-    print(f"[floor] bottom-envelope fit: n={floor_n.round(3)} d={floor['d']:.2f} "
+    floor_d = float(floor["d"])
+    print(f"[floor] bottom-envelope fit: n={floor_n.round(3)} d={floor_d:.2f} "
           f"y_cut={floor['y_cut']:.2f} inliers={floor['inliers']} "
           f"rms={floor['rms']*1000:.1f}mm (global-fit rms = drift warp evidence)")
+    # NOTE: the envelope plane sits a few cm below the visible floor surface
+    # (below-floor noise/glossy-floor multipath drags the bottom 10% down).
+    # We deliberately do NOT shift it globally: per-frame plane anchoring in
+    # the mosaic stage (lib.damage.local_plane_offset) corrects the offset
+    # per frame, which also absorbs residual reconstruction warp.
     raised = pts[(pts @ floor_n + floor["d"]) > 0.15]
     surfaces = []
     for p in ransac_planes_sequential(raised, n_planes=6):
@@ -286,7 +321,9 @@ def main():
             continue
         h = float(np.median(raised[p["mask"]] @ floor_n + floor["d"]))
         surfaces.append({"height_above_floor_m": round(h, 3),
-                         "inliers": p["inliers"], "rms_mm": round(p["rms"] * 1000, 1)})
+                         "inliers": p["inliers"], "rms_mm": round(p["rms"] * 1000, 1),
+                         "normal": [float(x) for x in p["normal"]],
+                         "d": float(p["d"])})
     print(f"[surfaces] {len(surfaces)} raised horizontal surfaces:")
     for s in surfaces:
         print(f"   +{s['height_above_floor_m']:.2f} m above floor, inliers={s['inliers']}")
@@ -435,10 +472,14 @@ def main():
             stride = max(1, len(odo["frames"]) // (200 if args.fast else 400))
             surface_planes = [("floor", floor_n, floor["d"])]
             for s in surfaces[:args.max_surfaces]:
-                # a surface h above the floor satisfies n·p + d_s = 0 with
-                # d_s = d_floor - h (n points up)
-                hn = floor_n
-                hd = floor["d"] - float(s["height_above_floor_m"])
+                # use the surface's own fitted plane (furniture tops are not
+                # exactly parallel to the floor); fall back to horizontal
+                if "normal" in s:
+                    hn = np.asarray(s["normal"], dtype=float)
+                    hd = float(s["d"])
+                else:
+                    hn = floor_n
+                    hd = floor["d"] - float(s["height_above_floor_m"])
                 surface_planes.append((f"surface+{s['height_above_floor_m']:.2f}m", hn, hd))
             from lib.damage import extract_rgb_frames
             frames_dir = f"/tmp/mosaic_frames_{os.path.basename(capture)}"
@@ -538,11 +579,20 @@ def main():
         if damage is not None:
             for si, (res, m) in enumerate(zip(damage["surfaces"][:2], thumbs[:2])):
                 img = m["color"] / 255.0
-                img = np.where(m["coverage"][:, :, None], img, 0.5)
-                extent2 = [m["origin"][0],
-                           m["origin"][0] + img.shape[0] * m["cell"],
-                           m["origin"][1],
-                           m["origin"][1] + img.shape[1] * m["cell"]]
+                cov = m["coverage"]
+                # crop to the observed footprint so the figure is mostly data
+                ys, xs = np.where(cov)
+                x0 = max(0, xs.min() - 40)
+                x1 = min(cov.shape[0], xs.max() + 40)
+                y0 = max(0, ys.min() - 40)
+                y1 = min(cov.shape[1], ys.max() + 40)
+                img = img[x0:x1, y0:y1]
+                covc = cov[x0:x1, y0:y1]
+                img = np.where(covc[:, :, None], img, 0.9)
+                ox = m["origin"][0] + x0 * m["cell"]
+                oy = m["origin"][1] + y0 * m["cell"]
+                extent2 = [ox, ox + img.shape[0] * m["cell"],
+                           oy, oy + img.shape[1] * m["cell"]]
                 fig2, ax2 = plt.subplots(figsize=(10, 8))
                 ax2.imshow(np.transpose(img, (1, 0, 2)), origin="lower", extent=extent2)
                 for reg in res["cracks"]:
@@ -551,7 +601,8 @@ def main():
                     ax2.plot(reg["center_m"][0], reg["center_m"][1], "yo", ms=10, mec="k")
                 for fl in res["flags"]:
                     ax2.plot(fl["center_m"][0], fl["center_m"][1], "bx", ms=10)
-                ax2.set_title(f"{res['surface']} orthomosaic (+ cracks, o stains, x unobserved)")
+                ax2.set_title(f"{res['surface']} orthomosaic — grey = not observed at "
+                              f"this height (+ cracks, o stains, x coverage gaps)")
                 fig2.savefig(os.path.join(out, f"mosaic_{si}.png"), dpi=110)
                 plt.close(fig2)
     except Exception as e:  # rendering is best-effort, JSON is the contract
