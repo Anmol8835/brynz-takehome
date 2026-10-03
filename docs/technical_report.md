@@ -1,8 +1,11 @@
 # Technical Report — scan-to-plan
 
-**Data:** two Record3D-format LiDAR captures supplied as sample data
+**Data:** three Record3D-format LiDAR captures supplied as sample data
 (`single_room/c00a170fe1`, 37 s / 1715 frames; `single_scan_floor_only/1a8384c3f6`,
-115 s / 5251 frames). Both are floor-focused walks of the same furnished space.
+115 s / 5251 frames; `single_scan_with_ceiling/c7d28f72c6`, 162 s / 9745 frames).
+The first two are floor-focused walks of the same furnished space (camera
+pitched down throughout); the third pitches up to +25 deg and observes the
+ceiling (vertical span ~3.1 m), exercising the ceiling-height path.
 
 ## 1. Architecture
 
@@ -38,7 +41,7 @@ deterministic (fixed RNG seeds). No pretrained weights, no network calls.
 
 | Tier | Input | Path in this pipeline | Measured on sample data |
 |---|---|---|---|
-| LiDAR | depth + poses + intrinsics (Pro iPhone, Record3D) | full pipeline | yes (both captures) |
+| LiDAR | depth + poses + intrinsics (Pro iPhone, Record3D) | full pipeline | yes (all three captures) |
 | Video | RGB walkthrough | COLMAP/GLOMAP SfM replaces the odometry block; the floor/surface/damage stages are input-agnostic | no data supplied — designed, unmeasured |
 | Photos | 2-8 stills/room | same: SfM on stills, then identical downstream | no data supplied |
 

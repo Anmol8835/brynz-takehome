@@ -38,6 +38,10 @@ Run with `--fusion-stride 3` (identical geometry, 1/3 the fusion frames).
 | Damage per surface | floor: 0 cracks / 384 stains / 7 flags @ 2.1% coverage; 3 furniture surfaces: 0-1 cracks, 256-276 stains, 10-14 flags @ 1.7% coverage | heuristic, same caveats |
 | Reproducibility | ✅ deterministic code path | see fix loop |
 
+## Gates — single_scan_with_ceiling/c7d28f72c6 (162 s, 9745 frames)
+
+<!-- filled from run -->
+
 ## Repeatability (same space, same tier, two captures)
 
 `scripts/compare_captures.py benchmark/single_room/plan.json benchmark/floor_only/plan.json`

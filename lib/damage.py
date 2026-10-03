@@ -135,8 +135,12 @@ def build_floor_mosaic(capture_dir, odo, floor_n, floor_d, stride,
         iz = np.floor((world[:, 2] - zmin) / cell).astype(int)
         keep = (ix >= 0) & (ix < nx) & (iz >= 0) & (iz < nz)
         ix, iz, cols = ix[keep], iz[keep], cols[keep]
-        np.add.at(color, (ix, iz), cols)
-        np.add.at(counts, (ix, iz), 1)
+        # bincount scatter is ~10x faster than np.add.at for large point counts
+        lin = ix * nz + iz
+        counts += np.bincount(lin, minlength=nx * nz).reshape(nx, nz)
+        for ch in range(3):
+            color[:, :, ch] += np.bincount(lin, weights=cols[:, ch],
+                                           minlength=nx * nz).reshape(nx, nz)
 
     if own_tmp:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -204,7 +208,9 @@ def detect_damage(mosaic):
 
     bgr = ndimage.uniform_filter(rgb, size=(2 * r + 1, 2 * r + 1, 0), mode="nearest")
     dev = np.abs(rgb - bgr).max(axis=2)
-    stains = _blobs((dev > 0.12) & cov & ~dark, min_area_cells=(0.02 / cell) ** 2)
+    # conservative floor: >=4 cm across and a clearly visible colour shift;
+    # shortlisted so texture/speckle does not masquerade as damage
+    stains = _blobs((dev > 0.15) & cov & ~dark, min_area_cells=(0.04 / cell) ** 2)
 
     # concealed damage: unobserved holes inside the scanned region
     filled = ndimage.binary_fill_holes(cov)

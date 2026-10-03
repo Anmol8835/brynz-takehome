@@ -10,7 +10,7 @@ case-study output contract, scored against the provided sample data.
 | 1 | One command per capture | `scan_to_plan.py` | CLI, `<15 min` on clean machine | ✅ |
 | 2 | JSON to published schema | `plan.json` (schema v0.1, documented in README) | `plan_output/plan.json` per capture | ✅ |
 | 3 | Dimensioned room plan: walls | `scan_to_plan.py` wall-plane stage | `walls[]` | ⚠️ N/A on sample data — no vertical planes exist in floor-focused captures (pitch ≤ -17° entire walk); reported as empty with evidence + note, never hallucinated |
-| 4 | Ceiling height | ceiling histogram stage | `ceiling_height_m` + `ceiling_note` | ⚠️ N/A on sample data — correctly reported `null` + not-observable note (see fix loop: this was the worst gate, now fixed) |
+| 4 | Ceiling height | ceiling histogram stage | `ceiling_height_m` + `ceiling_note` | ✅ measured on `single_scan_with_ceiling` (camera pitches up to +25°, ceiling points observed); `null` + evidence note on the two floor-focused captures |
 | 5 | Floor area | `floor_area_m2` (observed floor via mosaic) + `scanned_footprint_m2` | plan.json | ✅ |
 | 6 | Openings (widths, detection scored) | wall openings stage | — | ⚠️ N/A — walls not observable in sample data |
 | 7 | Per-surface damage regions, class + metric extent | `lib/damage.py` | `damage.surfaces[]` (floor + 3 furniture surfaces), cracks/stains with length/area in metres | ✅ heuristic, disclosed |

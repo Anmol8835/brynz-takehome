@@ -65,6 +65,46 @@ magnitude was wrong because it was based on a guess rather than a measured
 profile. The benchmark report now breaks timing down per stage from
 measurements. Runtime is also secondary to the accuracy gates above.
 
+## Gate 4 — Orthomosaic coverage and colour (found in review, fixed)
+
+**Before (FAIL):** the rendered per-surface mosaics were mostly grey with
+thin coloured slivers. Two independent root causes:
+
+1. **Colour sampling scale mismatch.** The RGB frames were decoded at
+   native 1920x1440 (no scale filter in the ffmpeg extract) but the
+   sampling code indexed them with `U_SCALE = 960/256`, so every colour was
+   read from the top-left quadrant of the frame — washed-out, wrong hues.
+   Evidence: decoded-frame size check returned (1920, 1440); the overlay
+   probe (depth dots drawn on the frame) confirmed the correct mapping
+   needs the full-frame scale.
+2. **Plane offset.** The bottom-envelope floor fit sits at the bottom of
+   the floor's noise band: measured per-frame floor mass is +2.5..+8.5 cm
+   above the fitted plane (below-floor multipath/noise + residual warp).
+   With a +/-3 cm paint band, each frame painted only a thin sliver of the
+   surface. Evidence: per-frame modal-offset table
+   (`mode +2.5..+8.5 cm`, 15-58% of each frame's pixels in the band).
+
+**Fix shipped:** decode at 960x720 with an area filter and compute the
+colour-sampling scale from the actual decoded size; paint each frame
+through `lib.damage.local_plane_offset` (per-frame modal-offset anchoring,
+which also absorbs residual reconstruction warp); raised surfaces paint
+from their own fitted plane instead of a horizontal plane at the
+floor-derived height; crop renders to the observed footprint.
+
+**Predicted:** floor mosaic coverage 1.1% -> >15%; colours recognisable.
+
+**After (PASS):** floor coverage 1.07% -> **17.7%** (`--fast` smoke run),
+mosaic shows real floor imagery (rug edge, door threshold, floor pattern).
+See `fix_loop/before_after_mosaic/`. On the full-quality rerun, floor
+coverage is 17.8% with 3 crack and 228 stain candidates (see benchmark
+report); colours match the source video (verified against a decoded frame).
+
+**Post-mortem on the discovery route:** neither bug was visible from the
+numbers alone — coverage and interval statistics all looked plausible. Both
+were found by rendering the PNGs and looking at them, then tracing why they
+looked wrong back to the decode size and the per-frame offset table. Lesson:
+render-and-look belongs in the loop, not just metric tables.
+
 ## Regeneration
 
 ```

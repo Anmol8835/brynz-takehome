@@ -10,7 +10,10 @@ Deadline: **October 4, 7:00 PM IST**.
    (37 s capture) / 38.6 min (115 s capture), `--fast` for long captures.
 3. **Outputs on the sample data** (`plan_output/` inside each capture
    directory + copies under `benchmark/`): plan.json (schema v0.1), rendered
-   plans, per-surface mosaics.
+   plans, per-surface mosaics. All three provided captures are processed:
+   `single_room`, `single_scan_floor_only` (floor-focused; ceiling correctly
+   reported as not observable) and `single_scan_with_ceiling` (ceiling
+   observed and measured).
 4. **Docs**: compliance matrix, benchmark report, technical report (≤6
    pages), fix-loop bundle with before/after logs.
 

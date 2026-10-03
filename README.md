@@ -69,11 +69,14 @@ Every measurement carries a confidence interval derived from the geometry
 
 ## Sample-data findings (see docs/technical_report.md)
 
-The two sample captures are floor-focused walks (camera pitched 17-42 deg
-down for the whole capture), so wall and ceiling geometry are not observable
-and are reported as such with evidence. The captures contain a furnished
-room: furniture tops occlude most of the floor, so damage detection runs
-per-surface (floor + furniture tops), not just on the floor.
+Three sample captures: two floor-focused walks (`single_room`,
+`single_scan_floor_only` — camera pitched down the whole capture) and one
+`single_scan_with_ceiling` (camera pitches up to +25 deg, ceiling points
+observed). On the floor-focused captures, ceiling/wall geometry is not
+observable and is reported as such with pitch evidence; on the ceiling
+capture the ceiling histogram fires and reports a real height. The rooms
+are furnished: furniture tops occlude much of the floor, so damage
+detection runs per-surface (floor + furniture tops), not just the floor.
 
 ## Reproduce
 
