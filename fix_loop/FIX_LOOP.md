@@ -48,6 +48,23 @@ Predicted: `ceiling_height_m = null` + note on `single_room`.
 `ceiling_note = "ceiling not observable: no points above 2.0 m; capture is
 floor-focused (top of visible content 1.72 m)"`. See `after_run.log`.
 
+## Gate 3 — Runtime (secondary; prediction missed, post-mortem included)
+
+**Before (FAIL):** 546.6 s for a 37 s capture, with the RGB stream decoded
+from `rgb.mp4` once per surface (4x redundant decode).
+
+**Fix:** share one decode across all surfaces (shipped in the same commit).
+
+**Predicted:** ~430 s. **After: 542.5 s — prediction missed.**
+
+**Post-mortem (why it fell short):** the prediction assumed decode was a
+large share of the mosaic stage. It was not — the per-frame backprojection
+loop (4 surfaces x 215 frames of 49k-pixel scatter-adds) dominates, and the
+decode share was ~30 s. The fix was correct engineering but the predicted
+magnitude was wrong because it was based on a guess rather than a measured
+profile. The benchmark report now breaks timing down per stage from
+measurements. Runtime is also secondary to the accuracy gates above.
+
 ## Regeneration
 
 ```
