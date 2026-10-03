@@ -7,9 +7,13 @@ Record3D-format iPhone LiDAR captures (depth, confidence, odometry, RGB).
 python scan_to_plan.py <capture_dir> [--out OUT_DIR]
 ```
 
-Runs on a clean machine in <15 min (pip-only dependencies, no weights, no
-network calls at inference time). Outputs `plan.json` + rendered plans to
-`OUT_DIR` (default `<capture_dir>/plan_output/`).
+Pip-only dependencies, no weights, no network calls at inference time.
+Outputs `plan.json` + rendered plans to `OUT_DIR` (default
+`<capture_dir>/plan_output/`).
+
+Measured runtimes (7 GB RAM laptop): 37 s capture -> 9.0 min; 115 s capture
+-> 38.6 min (mosaic stage dominates). Use `--fast` for long captures
+(~11-12 min: sparser frames, 1 cm cells, 1 raised surface).
 
 ## Input format (Record3D-style)
 

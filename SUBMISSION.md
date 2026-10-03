@@ -6,8 +6,8 @@ Deadline: **October 4, 7:00 PM IST**.
 
 1. **Repo** (this directory, pushed to GitHub — private, link in the reply
    email) with full git history.
-2. **Run instructions** (README): one command per capture, <15 min on a
-   clean machine.
+2. **Run instructions** (README): one command per capture; measured 9 min
+   (37 s capture) / 38.6 min (115 s capture), `--fast` for long captures.
 3. **Outputs on the sample data** (`plan_output/` inside each capture
    directory + copies under `benchmark/`): plan.json (schema v0.1), rendered
    plans, per-surface mosaics.
