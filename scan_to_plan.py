@@ -54,15 +54,23 @@ def ransac_plane(pts, dist=0.02, iters=400, samples=50_000):
 
 
 def ransac_planes_sequential(pts, n_planes=4, dist=0.02, iters=400):
-    """Repeatedly fit the dominant plane, remove its inliers, refit."""
-    rest = pts
+    """Repeatedly fit the dominant plane and remove its inliers. Each
+    returned plane's 'mask' is a boolean over the ORIGINAL pts."""
+    rest_idx = np.arange(len(pts))
     planes = []
     for _ in range(n_planes):
-        if len(rest) < 1000:
+        if len(rest_idx) < 1000:
             break
-        p = ransac_plane(rest, dist=dist, iters=iters)
+        p = ransac_plane(pts[rest_idx], dist=dist, iters=iters)
+        local_mask = p["mask"]  # over pts[rest_idx]
+        full_mask = np.zeros(len(pts), dtype=bool)
+        full_mask[rest_idx[local_mask]] = True
+        p["mask"] = full_mask
+        p["inliers"] = int(full_mask.sum())
+        dev = np.abs(pts[full_mask] @ p["normal"] + p["d"])
+        p["rms"] = float(np.sqrt((dev ** 2).mean()))
         planes.append(p)
-        rest = rest[~p["mask"]]
+        rest_idx = rest_idx[~local_mask]
     return planes
 
 
@@ -87,15 +95,18 @@ def pick_floor(planes, trajectory, gravity=(0.0, 1.0, 0.0)):
     return cands[0][1]
 
 
-def ransac_floor_constrained(pts, camera_y_median, margin=0.8, dist=0.02, iters=400):
-    """Fit the floor as the dominant plane strictly below the camera band.
+def ransac_floor_envelope(pts, frac=0.10, dist=0.02, iters=400):
+    """Fit the floor as the plane through the BOTTOM envelope of the cloud.
 
-    Local flat surfaces (table tops, shelves) sit just below the camera and
-    win unconstrained RANSAC; the true floor is the mass well below the
-    camera. Also returns the full-cloud inlier RMS, which measures how much
-    the reconstructed floor has warped under odometry drift.
+    A floor-focused scan contains dense flat slabs above the floor (raised
+    platforms, rug edges, furniture tops); the densest 2cm slab wins plain
+    RANSAC, so we first isolate the lowest `frac` of points by world-y and
+    fit the dominant plane there. Also returns the full-cloud inlier RMS,
+    which measures how much the reconstructed floor has warped under
+    odometry drift.
     """
-    below = pts[pts[:, 1] < camera_y_median - margin]
+    ycut = float(np.percentile(pts[:, 1], frac * 100))
+    below = pts[pts[:, 1] <= ycut]
     if len(below) < 1000:
         return None
     p = ransac_plane(below, dist=dist, iters=iters)
@@ -109,6 +120,7 @@ def ransac_floor_constrained(pts, camera_y_median, margin=0.8, dist=0.02, iters=
     p["inliers"] = int(mask.sum())
     p["rms"] = float(np.sqrt((dev[mask] ** 2).mean()))
     p["warp_rms"] = p["rms"]  # drift evidence: residual of the global floor fit
+    p["y_cut"] = ycut
     return p
 
 
@@ -245,22 +257,27 @@ def main():
     pts = cloud["points"]
     print(f"[reconstruct] {len(pts)} points from {cloud['frames_used']} frames")
 
-    # --- planes: floor = dominant plane strictly below the camera band ---
-    planes = ransac_planes_sequential(pts)
-    print(f"[planes] {len(planes)} fitted (local surfaces):")
-    for p in planes:
-        print(f"   n={p['normal'].round(3)} d={p['d']:.2f} inliers={p['inliers']} rms={p['rms']*1000:.1f}mm")
-    cam_y_med = float(np.median((odo["t"] * k)[:, 1]))
-    floor = ransac_floor_constrained(pts, cam_y_med)
-    if floor is None or floor["inliers"] < 50_000:
-        floor = pick_floor(planes, odo["t"] * k)
+    # --- floor = bottom envelope of the cloud; other horizontal slabs are
+    # raised surfaces above it (reported separately) ---
+    floor = ransac_floor_envelope(pts)
     if floor is None:
-        print("[floor] no horizontal plane found", file=sys.stderr)
+        print("[floor] no floor plane found", file=sys.stderr)
         sys.exit(1)
     floor_n = floor["normal"]
-    print(f"[floor] chosen: n={floor_n.round(3)} d={floor['d']:.2f} "
-          f"inliers={floor['inliers']} rms={floor['rms']*1000:.1f}mm "
-          f"(global-fit rms = drift warp evidence)")
+    print(f"[floor] bottom-envelope fit: n={floor_n.round(3)} d={floor['d']:.2f} "
+          f"y_cut={floor['y_cut']:.2f} inliers={floor['inliers']} "
+          f"rms={floor['rms']*1000:.1f}mm (global-fit rms = drift warp evidence)")
+    raised = pts[(pts @ floor_n + floor["d"]) > 0.15]
+    surfaces = []
+    for p in ransac_planes_sequential(raised, n_planes=6):
+        if abs(p["normal"][1]) < 0.9 or p["inliers"] < 20_000:
+            continue
+        h = float(np.median(raised[p["mask"]] @ floor_n + floor["d"]))
+        surfaces.append({"height_above_floor_m": round(h, 3),
+                         "inliers": p["inliers"], "rms_mm": round(p["rms"] * 1000, 1)})
+    print(f"[surfaces] {len(surfaces)} raised horizontal surfaces:")
+    for s in surfaces:
+        print(f"   +{s['height_above_floor_m']:.2f} m above floor, inliers={s['inliers']}")
 
     # camera height: median signed distance of trajectory from floor plane
     heights = (odo["t"] * k) @ floor_n + floor["d"]
@@ -285,11 +302,20 @@ def main():
     else:
         hist, edges = np.histogram(band, bins=int((6.0 - lo) / 0.01), range=(lo, 6.0))
         ceil_idx = int(hist.argmax())
-        ceil_h = float(edges[ceil_idx])
-        sel = band[(band > ceil_h - 0.15) & (band < ceil_h + 0.15)]
-        ceil_spread = float(np.std(sel)) if len(sel) > 2 else None
-        print(f"[ceiling] height = {ceil_h:.2f} m (spread "
-              f"{None if ceil_spread is None else ceil_spread * 1000:.0f} mm)")
+        support = float(hist[ceil_idx]) / len(signed)
+        if ceil_idx == 0 or ceil_idx == len(hist) - 1 or support < 0.002:
+            ceil_note = (f"ceiling not observable: no supported plane peak above "
+                         f"{lo:.1f} m (band-edge artifact rejected, top of visible "
+                         f"content {content_top:.2f} m)")
+            ceil_h = None
+            ceil_spread = None
+            print(f"[ceiling] {ceil_note}")
+        else:
+            ceil_h = float(edges[ceil_idx])
+            sel = band[(band > ceil_h - 0.15) & (band < ceil_h + 0.15)]
+            ceil_spread = float(np.std(sel)) if len(sel) > 2 else None
+            print(f"[ceiling] height = {ceil_h:.2f} m (spread "
+                  f"{None if ceil_spread is None else ceil_spread * 1000:.0f} mm)")
 
     # --- 3D wall planes: near-vertical dominant planes above the floor ---
     pts_f, R = transform_to_floor(pts, {"normal": floor_n, "d": floor["d"]})
@@ -384,15 +410,66 @@ def main():
                           "p1": p1.round(3).tolist(), "p2": p2.round(3).tolist()})
     print(f"[walls] method={method} walls={len(walls)} corners={len(corners)}")
 
-    # --- floor area: shoelace of the polygon; occupancy fallback ---
-    if len(corners) >= 3:
-        xs, ys = corners[:, 0], corners[:, 1]
-        area = float(0.5 * abs(np.sum(xs * np.roll(ys, -1) - np.roll(xs, -1) * ys)))
-        area_method = "polygon_shoelace"
+    # --- damage: per-surface orthomosaics (floor + major raised surfaces)
+    # + RGB-based detection. Furniture occludes most of the floor in these
+    # captures, so each dominant horizontal surface gets its own mosaic. ---
+    damage = None
+    items = []
+    import shutil as _shutil
+    if os.path.exists(os.path.join(capture, "rgb.mp4")) and _shutil.which("ffmpeg"):
+        try:
+            from lib.damage import build_floor_mosaic, detect_damage, scope_items
+            odo_m = {"frames": odo["frames"], "t": odo["t"] * k, "q": odo["q"], "K": odo["K"]}
+            stride = max(1, len(odo["frames"]) // 400)
+            surface_planes = [("floor", floor_n, floor["d"])]
+            for s in surfaces[:3]:
+                # a surface h above the floor satisfies n·p + d_s = 0 with
+                # d_s = d_floor - h (n points up)
+                hn = floor_n
+                hd = floor["d"] - float(s["height_above_floor_m"])
+                surface_planes.append((f"surface+{s['height_above_floor_m']:.2f}m", hn, hd))
+            from lib.damage import extract_rgb_frames
+            frames_dir = f"/tmp/mosaic_frames_{os.path.basename(capture)}"
+            extract_rgb_frames(capture, frames_dir, stride)
+            damage = {"surfaces": [], "extent_ci_m": None}
+            thumbs = []
+            for sname, sn, sd in surface_planes:
+                mosaic = build_floor_mosaic(capture, odo_m, sn, sd, stride,
+                                            frames_dir=frames_dir)
+                res = detect_damage(mosaic)
+                res["surface"] = sname
+                damage["surfaces"].append(res)
+                # keep only a 4x-downsampled thumbnail for rendering
+                thumbs.append({
+                    "color": mosaic["color"][::4, ::4].copy(),
+                    "coverage": mosaic["coverage"][::4, ::4].copy(),
+                    "origin": mosaic["origin"].copy(),
+                    "cell": mosaic["cell"] * 4,
+                })
+                del mosaic
+                items += [dict(it, surface=sname) for it in scope_items(res)]
+                print(f"[damage:{sname}] cracks={len(res['cracks'])} "
+                      f"stains={len(res['stains'])} flags={len(res['flags'])} "
+                      f"coverage={res['coverage_fraction']}")
+            _shutil.rmtree(frames_dir, ignore_errors=True)
+            damage["extent_ci_m"] = damage["surfaces"][0].get("extent_ci_m")
+        except Exception as e:
+            import traceback
+            print(f"[damage] failed: {e}", file=sys.stderr)
+            traceback.print_exc()
     else:
-        xy = pts_f[:, :2]
-        counts, origin, cell = density_grid(xy)
-        area = float((counts >= 3).sum()) * cell**2
+        print("[damage] skipped: rgb.mp4 or ffmpeg unavailable")
+
+    # --- areas: observed floor (mosaic coverage) + scanned footprint
+    # (occupancy). Both are honest bounds for floor-focused captures. ---
+    xy = pts_f[:, :2]
+    counts, origin, cell = density_grid(xy, cell=0.02)
+    footprint = float((counts >= 3).sum()) * cell**2
+    if damage is not None:
+        area = damage["surfaces"][0]["covered_area_m2"]
+        area_method = "observed_floor_mosaic"
+    else:
+        area = footprint
         area_method = "occupancy_fallback"
 
     result = {
@@ -403,14 +480,23 @@ def main():
                         [{"pair": list(p), "ratio": r} for p, r in calib_report]},
         "camera_height_m": round(cam_height, 3),
         "camera_height_ci_m": round(cam_height_ci, 3),
+        "raised_surfaces": surfaces,
         "ceiling_height_m": None if ceil_h is None else round(ceil_h, 3),
         "ceiling_height_ci_m": None if ceil_spread is None else round(2 * ceil_spread, 3),
         "ceiling_note": ceil_note,
         "content_top_m": round(content_top, 3),
         "floor_area_m2": round(area, 2),
         "floor_area_method": area_method,
+        "scanned_footprint_m2": round(footprint, 2),
         "wall_method": method,
         "walls": walls,
+        "walls_note": (None if walls else
+                       "no near-vertical planes in capture: camera pitched "
+                       "down 17-42 deg for the entire walk, walls are not "
+                       "observed; floor extent and damage are the observable "
+                       "outputs for this capture"),
+        "damage": damage,
+        "scope_items": items if damage else [],
         "corners": corners.round(3).tolist() if len(corners) else [],
         "timing_s": round(time.time() - t0, 1),
     }
@@ -436,6 +522,26 @@ def main():
         ax.set_title("wall density + polygon")
         fig.savefig(os.path.join(out, "density_debug.png"), dpi=110)
         plt.close(fig)
+        # mosaic + damage overlay (one figure per surface, up to 2)
+        if damage is not None:
+            for si, (res, m) in enumerate(zip(damage["surfaces"][:2], thumbs[:2])):
+                img = m["color"] / 255.0
+                img = np.where(m["coverage"][:, :, None], img, 0.5)
+                extent2 = [m["origin"][0],
+                           m["origin"][0] + img.shape[0] * m["cell"],
+                           m["origin"][1],
+                           m["origin"][1] + img.shape[1] * m["cell"]]
+                fig2, ax2 = plt.subplots(figsize=(10, 8))
+                ax2.imshow(np.transpose(img, (1, 0, 2)), origin="lower", extent=extent2)
+                for reg in res["cracks"]:
+                    ax2.plot(reg["center_m"][0], reg["center_m"][1], "r+", ms=12, mew=2)
+                for reg in res["stains"]:
+                    ax2.plot(reg["center_m"][0], reg["center_m"][1], "yo", ms=10, mec="k")
+                for fl in res["flags"]:
+                    ax2.plot(fl["center_m"][0], fl["center_m"][1], "bx", ms=10)
+                ax2.set_title(f"{res['surface']} orthomosaic (+ cracks, o stains, x unobserved)")
+                fig2.savefig(os.path.join(out, f"mosaic_{si}.png"), dpi=110)
+                plt.close(fig2)
     except Exception as e:  # rendering is best-effort, JSON is the contract
         print(f"[render] skipped: {e}")
 

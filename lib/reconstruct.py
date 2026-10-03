@@ -26,7 +26,7 @@ def _voxel_downsample(pts, voxel, values=None):
     dims = idx.max(axis=0) + 2
     key = np.ravel_multi_index((idx[:, 0], idx[:, 1], idx[:, 2]), dims)
     uniq, inv = np.unique(key, return_inverse=True)
-    out = np.empty((len(uniq), 3), dtype=np.float64)
+    out = np.zeros((len(uniq), 3), dtype=np.float64)  # must be zeros: add.at accumulates
     np.add.at(out, inv, pts)
     counts = np.bincount(inv, minlength=len(uniq))
     out /= counts[:, None]
