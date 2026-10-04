@@ -566,11 +566,13 @@ def main():
         "scanned_footprint_m2": round(footprint, 2),
         "wall_method": method,
         "walls": walls,
-        "walls_note": (None if walls else
-                       "no near-vertical planes in capture: camera pitched "
-                       "down 17-42 deg for the entire walk, walls are not "
-                       "observed; floor extent and damage are the observable "
-                       "outputs for this capture"),
+        "walls_note": (None if method == "wall_plane_intersection" else
+                       "no near-vertical planes above threshold were observed "
+                       "(camera pitched down for the entire walk); walls[] here "
+                       "are the convex hull of the scanned footprint boundary, "
+                       "NOT detected wall planes — lengths are footprint-edge "
+                       "estimates, and openings are not extractable without "
+                       "wall views"),
         "damage": damage,
         "scope_items": items if damage else [],
         "corners": corners.round(3).tolist() if len(corners) else [],
