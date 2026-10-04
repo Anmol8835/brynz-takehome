@@ -405,7 +405,7 @@
       ]
     }
   ],
-  "walls_note": null,
+  "walls_note": "no near-vertical planes above threshold were observed (camera pitched down for the entire walk); walls[] here are the convex hull of the scanned footprint boundary, NOT detected wall planes \u2014 lengths are footprint-edge estimates, and openings are not extractable without wall views",
   "damage": {
     "surfaces": [
       {
@@ -13430,5 +13430,5 @@
       2.827
     ]
   ],
-  "timing_s": 4356.2
+  "timing_s": 4393.7
 }
