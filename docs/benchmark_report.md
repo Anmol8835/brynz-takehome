@@ -39,6 +39,24 @@ Run with `--fusion-stride 3` (identical geometry, 1/3 the fusion frames).
 | Reproducibility | ✅ deterministic code path | see fix loop |
 | Runtime | 4356 s (73 min) | full-quality; dominated by 404-frame mosaics × 4 surfaces |
 
+## Verification note (cross-checks performed)
+
+- Regeneration determinism: `single_room` re-run from the final code is
+  byte-identical to the committed `plan.json` (excluding timing).
+- Ceiling cross-check (`scripts/verify_ceiling.py`): raw-frame and
+  fused-cloud height histograms computed independently on identical bins.
+  For `single_room`/`floor_only`, "no ceiling observable" is confirmed
+  (top of visible content 1.7-1.8 m). For `single_scan_with_ceiling`, the
+  cross-checks show the dominant horizontal mass moves between ~1.8 m and
+  ~2.6 m depending on which segment of the walk is sampled — the walkthrough
+  spans rooms with different ceiling heights, and per-room labels are not
+  available in the data. The multi-level output (`ceiling_levels`) is the
+  honest form of this result; the single headline number carries ±0.3 m
+  effective uncertainty, not the ±5 cm per-level spread.
+- Walls labeling: all three captures have no wall planes (camera pitched
+  down throughout); `walls[]` are explicitly labeled convex-hull footprint
+  segments via `wall_method` + `walls_note`, not wall planes.
+
 ## Gates — single_scan_with_ceiling/c7d28f72c6 (162 s, 9745 frames)
 
 Run with `--fast` (sparser mosaics: 1 cm cells, 1 raised surface); geometry
@@ -50,7 +68,7 @@ furnished apartment (kitchen, bathroom, windows).
 | Odometry-depth calibration | k = 1.06 | 6% scale correction fit on this capture; reprojection ratios in plan.json |
 | Camera height | 1.02 m ± 0.24 | held lower and moved more than in the scan captures; wider CI reflects that |
 | Floor plane fit | rms 11.5 mm | 6M-point cloud |
-| Ceiling height | ✅ 2.02 m (dominant), second supported level 2.40 m | both reported in `ceiling_levels`; supports 0.3% / 0.2% of cloud (most points are floor/furniture) |
+| Ceiling height | Level(s) detected: 2.02 m (dominant), 2.40 m (secondary) | reported in `ceiling_levels` with supports 0.3% / 0.2%. This is a multi-room walkthrough: independent probes with different frame sampling locate dominant horizontal mass between 1.8 m and 2.6 m depending on which rooms the sampling weights — i.e. rooms genuinely differ. Treat the dominant level as ±0.3 m, not ±5 cm; see verification note |
 | Walls / openings | N/A | no near-vertical planes above threshold; pitch evidence in report |
 | Damage per surface | floor: 5 cracks / 252 stains / 21 flags @ 3.0% coverage | floor-focused mosaic; apartment rooms occlude most floor |
 | Reproducibility | ✅ deterministic code path | see fix loop |
