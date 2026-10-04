@@ -43,19 +43,20 @@ README.md
 > Hi Siva,
 >
 > Assessment complete. Repo: <link>.
-> One command per capture: `python scan_to_plan.py <capture_dir>` — runs in
-> under 10 minutes on a clean machine (pip-only dependencies, no weights,
-> no network).
+> One command per capture: `python scan_to_plan.py <capture_dir>` — pip-only
+> dependencies, no weights, no network.
 >
-> Both sample captures are floor-focused (the camera never pitches above
-> -17 degrees), so the pipeline reports walls/ceiling as not observable
-> with the pitch evidence, and instead delivers what the data supports:
-> calibrated floor geometry, raised-surface detection, per-surface damage
-> regions with metric extents, concealed-damage flags (rule named), scope
-> line items, and confidence intervals on every measurement. The technical
-> report covers the calibration analysis (intrinsic rescale, odometry-depth
-> consistency), the drift story, the error budget, and the fix loop (two
-> gates found, root-caused, fixed, before/after regenerable).
+> All three provided captures are processed. The two floor-focused scans
+> never pitch above -17 degrees, so the pipeline reports walls/ceiling
+> there as not observable with the pitch evidence; the ceiling capture is
+> a ~100 m apartment walkthrough where two ceiling levels are measured
+> (2.02 m dominant, 2.40 m secondary) and reported per level. Across all
+> captures the pipeline delivers: calibrated geometry (the RGB/depth
+> intrinsic rescale and odometry-depth consistency analysis are in the
+> report), per-surface damage regions with metric extents, concealed-damage
+> flags (rule named), scope line items, and confidence intervals on every
+> measurement. The fix loop documents the gates found, root-caused and
+> fixed, with regenerable before/after runs.
 >
 > Happy to walk through it.
 >

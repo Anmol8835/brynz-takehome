@@ -1,24 +1,24 @@
 [calibrate] odometry translation scale k = 1.0000
 [reconstruct] 6000000 points from 858 frames
-[floor] bottom-envelope fit: n=[-0.002  1.     0.001] d=1.53 y_cut=-1.50 inliers=51055 rms=11.6mm (global-fit rms = drift warp evidence)
+[floor] bottom-envelope fit: n=[-0.012  1.     0.001] d=1.51 y_cut=-1.50 inliers=53292 rms=11.6mm (global-fit rms = drift warp evidence)
 [surfaces] 6 raised horizontal surfaces:
-   +0.99 m above floor, inliers=190273
-   +0.83 m above floor, inliers=193776
-   +0.98 m above floor, inliers=153662
-   +1.32 m above floor, inliers=162633
-   +1.11 m above floor, inliers=150897
-   +0.60 m above floor, inliers=154636
-[floor] camera height above floor = 1.46 m +- 0.09
-[ceiling] ceiling not observable: no points above 2.0 m; capture is floor-focused (top of visible content 1.70 m)
+   +0.93 m above floor, inliers=194740
+   +0.95 m above floor, inliers=170512
+   +1.15 m above floor, inliers=165552
+   +0.72 m above floor, inliers=167285
+   +0.81 m above floor, inliers=156948
+   +0.61 m above floor, inliers=154819
+[floor] camera height above floor = 1.45 m +- 0.09
+[ceiling] ceiling not observable: no points above 2.0 m; capture is floor-focused (top of visible content 1.68 m)
 [walls] 0 near-vertical planes (rms = drift warp evidence):
-[walls] method=convex_hull_fallback walls=17 corners=31
-[damage:floor] cracks=0 stains=250 flags=3 coverage=0.0196
-[damage:surface+0.99m] cracks=0 stains=66 flags=5 coverage=0.0193
-[damage:surface+0.83m] cracks=0 stains=84 flags=6 coverage=0.0257
-[damage:surface+0.98m] cracks=0 stains=70 flags=4 coverage=0.0194
-[out] /home/anmol/Downloads/single_room/c00a170fe1/plan_output/plan.json (542.5s)
+[walls] method=convex_hull_fallback walls=18 corners=37
+[damage:floor] cracks=7 stains=63 flags=3 coverage=0.1768
+[damage:surface+0.93m] cracks=0 stains=25 flags=4 coverage=0.024
+[damage:surface+0.95m] cracks=1 stains=23 flags=7 coverage=0.0283
+[damage:surface+1.15m] cracks=2 stains=21 flags=5 coverage=0.0192
+[out] /home/anmol/Downloads/single_room/c00a170fe1/plan_output/plan.json (487.8s)
 {
-  "camera_height_m": 1.461,
+  "camera_height_m": 1.45,
   "ceiling_height_m": null,
-  "floor_area_m2": 1.31
+  "floor_area_m2": 11.83
 }

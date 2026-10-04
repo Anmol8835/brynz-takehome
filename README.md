@@ -11,9 +11,11 @@ Pip-only dependencies, no weights, no network calls at inference time.
 Outputs `plan.json` + rendered plans to `OUT_DIR` (default
 `<capture_dir>/plan_output/`).
 
-Measured runtimes (7 GB RAM laptop): 37 s capture -> 9.0 min; 115 s capture
--> 38.6 min (mosaic stage dominates). Use `--fast` for long captures
-(~11-12 min: sparser frames, 1 cm cells, 1 raised surface).
+Measured runtimes (7 GB RAM laptop): 37 s capture -> 8.1 min; 115 s capture
+-> 72.6 min; 162 s capture -> ~11 min with `--fast` (sparser frames, 1 cm
+cells, 1 raised surface), full quality longer. The per-surface damage
+mosaics dominate runtime; the geometry stages finish in ~2 min for all
+captures. On a memory-tight machine run captures one at a time.
 
 ## Input format (Record3D-style)
 

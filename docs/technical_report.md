@@ -61,6 +61,19 @@ above a lower ceiling. When no supported level exists, the field is `null`
 with a note carrying the pitch evidence — never a hallucinated value (see
 fix loop, Gate 2).
 
+## 2c. Ceiling capture findings (single_scan_with_ceiling)
+
+This capture walks ~100 m through a furnished apartment (bathroom, kitchen,
+windows) with the camera pitching from -31° to +33°. The pipeline reports
+two supported ceiling levels — 2.02 m and 2.40 m above the fitted floor,
+with support shares of 0.3% and 0.2% of the cloud. The supports are small
+because most of the cloud is floor and furniture; this is reported per
+level rather than pretending a single room-height. Camera height comes out
+1.02 m ± 0.24 m: the wider interval reflects genuine variation during the
+walkthrough (the phone was held lower and moved more than in the two
+floor-scan captures). The floor plane fit (rms 11.5 mm) and drift evidence
+carry over unchanged.
+
 ## 3. Calibration analysis
 
 1. **Intrinsic resolution mismatch (the decisive fix).** `odometry.csv`
