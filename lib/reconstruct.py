@@ -54,8 +54,15 @@ def build_cloud(capture_dir, odometry_scale=1.0, stride=2, conf_min=1,
     frames = odo["frames"][::stride]
     rng = np.random.default_rng(0)
 
-    acc_pts = None
-    acc_conf = None
+    # Chunk clouds are held as float32 (half the memory) and thinned with a
+    # per-point Bernoulli keep probability p = max_points / total after the
+    # pass: every voxel point has the same inclusion probability, matching
+    # the reference "subsample the concatenated cloud" behaviour, without
+    # ever materialising the concatenation (the earlier OOM cause on the
+    # 9745-frame capture).
+    chunk_pts = []
+    chunk_conf = []
+    total = 0
     for start in range(0, len(frames), chunk):
         pts_c, conf_c = [], []
         for f in frames[start : start + chunk]:
@@ -75,21 +82,21 @@ def build_cloud(capture_dir, odometry_scale=1.0, stride=2, conf_min=1,
         confs = np.concatenate(conf_c)
         ds, cout = _voxel_downsample(merged, voxel, values=confs)
         del merged, confs, pts_c, conf_c
-        if acc_pts is None:
-            acc_pts, acc_conf = ds, cout
-        else:
-            acc_pts = np.concatenate([acc_pts, ds])
-            acc_conf = np.concatenate([acc_conf, cout])
-            del ds, cout
-            if len(acc_pts) > 2 * max_points:
-                # uniform random thinning preserves spatial density fractions
-                # (coarser re-voxelisation would over-compress dense regions
-                # and relatively boost sparse below-floor noise, corrupting
-                # the floor envelope fit)
-                sel = rng.choice(len(acc_pts), max_points, replace=False)
-                acc_pts, acc_conf = acc_pts[sel], acc_conf[sel]
+        chunk_pts.append(ds.astype(np.float32))
+        chunk_conf.append(cout.astype(np.float32))
+        total += len(ds)
 
-    pts, conf = acc_pts, acc_conf
+    p = min(1.0, max_points / max(total, 1))
+    kept_pts, kept_conf = [], []
+    for ds, cout in zip(chunk_pts, chunk_conf):
+        if p >= 1.0:
+            keep = np.ones(len(ds), dtype=bool)
+        else:
+            keep = rng.random(len(ds)) < p
+        kept_pts.append(ds[keep])
+        kept_conf.append(cout[keep])
+    pts = np.concatenate(kept_pts).astype(np.float64)
+    conf = np.concatenate(kept_conf).astype(np.float64)
     if len(pts) > max_points:
         sel = rng.choice(len(pts), max_points, replace=False)
         pts, conf = pts[sel], conf[sel]

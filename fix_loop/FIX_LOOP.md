@@ -105,6 +105,26 @@ were found by rendering the PNGs and looking at them, then tracing why they
 looked wrong back to the decode size and the per-frame offset table. Lesson:
 render-and-look belongs in the loop, not just metric tables.
 
+## Gate 5 — Bounded-memory fusion without distribution corruption
+
+**Before (FAIL):** the fusion stage accumulated all chunk clouds and OOM'd on
+the 9745-frame capture (exit 137 at ~7GB RSS). A first memory fix
+(progressive re-voxelisation at 1.5x cell size above 1.5x the point cap)
+caused a silent regression: the floor envelope dropped ~15 cm (y p1/p5/p10
+= -2.39/-1.78/-1.48 -> -2.68/-1.96/-1.65) because coarser voxels compress
+dense regions more than sparse below-floor noise, relatively boosting the
+noise tail. The floor mosaic coverage went 17.7% -> 0.0%.
+
+**Root cause + evidence:** A/B test of old vs new `build_cloud` on the same
+capture, same stride; the distribution drift above; mosaic coverage in the
+smoke runs.
+
+**Fix:** uniform random thinning above 2x the point cap (preserves spatial
+density fractions); the bounded version is then byte-identical to the
+unbounded original. **After (PASS):** y percentiles identical to
+pre-fix; floor coverage restored to 17.7%; the 9745-frame capture completes
+without OOM.
+
 ## Regeneration
 
 ```
