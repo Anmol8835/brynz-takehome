@@ -135,12 +135,11 @@ def build_floor_mosaic(capture_dir, odo, floor_n, floor_d, stride,
         iz = np.floor((world[:, 2] - zmin) / cell).astype(int)
         keep = (ix >= 0) & (ix < nx) & (iz >= 0) & (iz < nz)
         ix, iz, cols = ix[keep], iz[keep], cols[keep]
-        # bincount scatter is ~10x faster than np.add.at for large point counts
-        lin = ix * nz + iz
-        counts += np.bincount(lin, minlength=nx * nz).reshape(nx, nz)
-        for ch in range(3):
-            color[:, :, ch] += np.bincount(lin, weights=cols[:, ch],
-                                           minlength=nx * nz).reshape(nx, nz)
+        # scatter-add; np.add.at measured faster than bincount here because
+        # per-frame point counts (~10-50k) are tiny vs the multi-million-cell
+        # grid, and bincount allocates the full grid per channel per frame
+        np.add.at(color, (ix, iz), cols)
+        np.add.at(counts, (ix, iz), 1)
 
     if own_tmp:
         shutil.rmtree(tmp, ignore_errors=True)

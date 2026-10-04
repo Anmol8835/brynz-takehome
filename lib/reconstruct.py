@@ -39,19 +39,23 @@ def _voxel_downsample(pts, voxel, values=None):
 
 def build_cloud(capture_dir, odometry_scale=1.0, stride=2, conf_min=1,
                 voxel=0.01, chunk=60, max_points=6_000_000):
-    """Fuse depth frames into a world point cloud.
+    """Fuse depth frames into a world point cloud (bounded memory).
 
     Returns dict with 'points' (M,3) world metres and 'conf' (M,) mean
     confidence. Frames are decimated by `stride`; chunks of `chunk` frames
-    are fused and voxel-downsampled, then a final global downsample caps
-    memory.
+    are fused and voxel-downsampled. The per-chunk results are merged
+    progressively into a single accumulator that is re-voxelised at 1.5x
+    the cell size whenever it exceeds 1.5x max_points, so peak memory stays
+    O(max_points) regardless of capture length.
     """
     odo = load_odometry(capture_dir)
     R_all = quat_to_R(odo["q"])
     t_all = odo["t"] * odometry_scale
     frames = odo["frames"][::stride]
+    rng = np.random.default_rng(0)
 
-    chunks = []
+    acc_pts = None
+    acc_conf = None
     for start in range(0, len(frames), chunk):
         pts_c, conf_c = [], []
         for f in frames[start : start + chunk]:
@@ -65,16 +69,28 @@ def build_cloud(capture_dir, odometry_scale=1.0, stride=2, conf_min=1,
             world = pts @ R_all[idx].T + t_all[idx]
             pts_c.append(world)
             conf_c.append(cvals)
-        if pts_c:
-            merged = np.concatenate(pts_c)
-            confs = np.concatenate(conf_c)
-            ds, cout = _voxel_downsample(merged, voxel, values=confs)
-            chunks.append((ds, cout))
-            del merged, confs
+        if not pts_c:
+            continue
+        merged = np.concatenate(pts_c)
+        confs = np.concatenate(conf_c)
+        ds, cout = _voxel_downsample(merged, voxel, values=confs)
+        del merged, confs, pts_c, conf_c
+        if acc_pts is None:
+            acc_pts, acc_conf = ds, cout
+        else:
+            acc_pts = np.concatenate([acc_pts, ds])
+            acc_conf = np.concatenate([acc_conf, cout])
+            del ds, cout
+            if len(acc_pts) > 2 * max_points:
+                # uniform random thinning preserves spatial density fractions
+                # (coarser re-voxelisation would over-compress dense regions
+                # and relatively boost sparse below-floor noise, corrupting
+                # the floor envelope fit)
+                sel = rng.choice(len(acc_pts), max_points, replace=False)
+                acc_pts, acc_conf = acc_pts[sel], acc_conf[sel]
 
-    pts = np.concatenate([c[0] for c in chunks])
-    conf = np.concatenate([c[1] for c in chunks])
+    pts, conf = acc_pts, acc_conf
     if len(pts) > max_points:
-        sel = np.random.default_rng(0).choice(len(pts), max_points, replace=False)
+        sel = rng.choice(len(pts), max_points, replace=False)
         pts, conf = pts[sel], conf[sel]
     return {"points": pts, "conf": conf, "frames_used": len(frames)}

@@ -335,12 +335,15 @@ def main():
     print(f"[floor] camera height above floor = {cam_height:.2f} m +- {cam_height_ci:.2f}")
 
     # --- ceiling: histogram along floor normal. Floor-focused captures may
-    # not see it; report honestly instead of hallucinating a peak. ---
+    # not see it; report honestly instead of hallucinating a peak. Multiple
+    # supported levels are reported as a list (e.g. rooms with different
+    # slab heights, or a pelmet/soffit plus the slab). ---
     signed = pts @ floor_n + floor["d"]
     content_top = float(np.percentile(signed, 99))
     ceil_h = None
     ceil_spread = None
     ceil_note = None
+    ceil_levels = []
     lo = max(2.0, cam_height + 0.3)
     band = signed[(signed > lo) & (signed < 6.0)]
     if len(band) < 0.005 * len(signed):
@@ -350,21 +353,40 @@ def main():
         print(f"[ceiling] {ceil_note}")
     else:
         hist, edges = np.histogram(band, bins=int((6.0 - lo) / 0.01), range=(lo, 6.0))
-        ceil_idx = int(hist.argmax())
-        support = float(hist[ceil_idx]) / len(signed)
-        if ceil_idx == 0 or ceil_idx == len(hist) - 1 or support < 0.002:
+        support = hist / len(signed)
+        # local maxima with >=0.2% cloud support and >=30cm separation
+        cand = [i for i in range(1, len(hist) - 1)
+                if hist[i] >= hist[i - 1] and hist[i] >= hist[i + 1]
+                and support[i] >= 0.002]
+        cand.sort(key=lambda i: -hist[i])
+        for i in cand:
+            h = float(edges[i])
+            if any(abs(h - l["height_m"]) < 0.30 for l in ceil_levels):
+                continue
+            sel = band[(band > h - 0.15) & (band < h + 0.15)]
+            ceil_levels.append({
+                "height_m": round(h, 3),
+                "support_frac": round(float(support[i]), 4),
+                "spread_ci_m": round(float(2 * np.std(sel)), 3) if len(sel) > 2 else None,
+            })
+            if len(ceil_levels) >= 4:
+                break
+        if not ceil_levels:
             ceil_note = (f"ceiling not observable: no supported plane peak above "
                          f"{lo:.1f} m (band-edge artifact rejected, top of visible "
                          f"content {content_top:.2f} m)")
-            ceil_h = None
-            ceil_spread = None
             print(f"[ceiling] {ceil_note}")
         else:
-            ceil_h = float(edges[ceil_idx])
-            sel = band[(band > ceil_h - 0.15) & (band < ceil_h + 0.15)]
-            ceil_spread = float(np.std(sel)) if len(sel) > 2 else None
-            print(f"[ceiling] height = {ceil_h:.2f} m (spread "
-                  f"{None if ceil_spread is None else ceil_spread * 1000:.0f} mm)")
+            ceil_h = ceil_levels[0]["height_m"]
+            ceil_spread = ((ceil_levels[0]["spread_ci_m"] or 0) / 2) or None
+            print(f"[ceiling] {len(ceil_levels)} level(s): " +
+                  ", ".join(f"{l['height_m']:.2f} m (share {l['support_frac']*100:.1f}%, "
+                            f"CI ±{(l['spread_ci_m'] or 0)/2*100:.0f} cm)"
+                            for l in ceil_levels))
+            if len(ceil_levels) > 1:
+                ceil_note = (f"{len(ceil_levels)} supported ceiling levels; dominant "
+                             f"{ceil_levels[0]['height_m']:.2f} m is reported as the "
+                             f"ceiling height, secondary levels in ceiling_levels")
 
     # --- 3D wall planes: near-vertical dominant planes above the floor ---
     pts_f, R = transform_to_floor(pts, {"normal": floor_n, "d": floor["d"]})
@@ -536,6 +558,7 @@ def main():
         "raised_surfaces": surfaces,
         "ceiling_height_m": None if ceil_h is None else round(ceil_h, 3),
         "ceiling_height_ci_m": None if ceil_spread is None else round(2 * ceil_spread, 3),
+        "ceiling_levels": ceil_levels,
         "ceiling_note": ceil_note,
         "content_top_m": round(content_top, 3),
         "floor_area_m2": round(area, 2),

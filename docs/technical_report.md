@@ -49,6 +49,18 @@ Honest note: the downstream stages (floor, surfaces, damage) consume a point
 cloud + posed RGB, so only the front end differs per tier. The sample data
 exercises the LiDAR tier end-to-end.
 
+## 2b. Ceiling detection
+
+The ceiling stage histograms the cloud along the floor normal above
+`max(2.0 m, camera height + 30 cm)` and accepts local maxima with >=0.2% of
+the cloud as support, separated by >=30 cm. All supported levels are
+reported (`ceiling_levels`) with per-level support and spread; the dominant
+level is the headline `ceiling_height_m`. This handles both the
+single-slab case and captures containing multiple rooms or a pelmet/soffit
+above a lower ceiling. When no supported level exists, the field is `null`
+with a note carrying the pitch evidence — never a hallucinated value (see
+fix loop, Gate 2).
+
 ## 3. Calibration analysis
 
 1. **Intrinsic resolution mismatch (the decisive fix).** `odometry.csv`
